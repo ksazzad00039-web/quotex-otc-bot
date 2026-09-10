@@ -1,1 +1,12 @@
 
+python-telegram-bot==20.8
+google-generativeai==0.8.3
+Pillow==10.4.0
+imagehash==4.3.1
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+Flask==3.0.3
+gunicorn==22.0.0
+requests==2.32.3
+python-dotenv==1.0.1
