@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import libsql_experimental as libsql
 
 # Dynamic System Path Handling
@@ -15,16 +15,16 @@ try:
 except ImportError:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("OTC_Enterprise_Quant.Database")
-    DATABASE_FILE = os.getenv("DATABASE_FILE", "data/research.db")
+    DATABASE_FILE = os.getenv("DATABASE_FILE", "otc_quant_memory.db")
     TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL")
     TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 
 
 class DatabaseManager:
     """
-    Enterprise-Grade Hybrid Database Infrastructure.
-    Provides Cloud Turso libSQL Synchronization with Local SQLite Resilient Fallback.
-    Optimized for High-Precision 1-Hour OTC Market Pattern Intelligence.
+    Enterprise-Grade Hybrid Database Infrastructure for Quotex OTC Quant Analysis.
+    Combines Turso Cloud DB with Local SQLite Fail-Safe Persistence.
+    Enforces Strict 1-Hour Timeframe Pattern Matching & Signal Performance Analytics.
     """
 
     def __init__(self):
@@ -36,43 +36,61 @@ class DatabaseManager:
         self._initialize_connection()
         self._bootstrap_schema()
 
+    def _format_turso_url(self, url: str) -> str:
+        """
+        Converts deprecated libsql:// or wss:// URL schemes to HTTPS
+        to prevent protocol handshake errors on cloud platforms like Render.
+        """
+        if not url:
+            return ""
+        if url.startswith("libsql://"):
+            return url.replace("libsql://", "https://")
+        if url.startswith("wss://"):
+            return url.replace("wss://", "https://")
+        return url
+
     def _initialize_connection(self) -> None:
-        """Establishes robust cloud or local database connections."""
+        """Establishes fault-tolerant connection between Turso Cloud and Local SQLite."""
         db_dir = os.path.dirname(self.local_db_path)
         if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Database directory created at: '{db_dir}'")
+            except Exception as e:
+                logger.warning(f"Could not create database directory {db_dir}: {str(e)}")
 
-        try:
-            if self.turso_url and self.turso_token:
-                logger.info("Initializing Turso Hybrid Cloud Sync Engine...")
+        # 1. Attempt Turso Cloud DB Connection
+        if self.turso_url and self.turso_token:
+            formatted_url = self._format_turso_url(self.turso_url)
+            try:
+                logger.info(f"Connecting to Turso Cloud Database ({formatted_url[:25]}...)...")
                 self.conn = libsql.connect(
-                    database=self.local_db_path,
-                    sync_url=self.turso_url,
+                    database=formatted_url,
                     auth_token=self.turso_token
                 )
-                self.conn.sync()
-                logger.info("Turso Cloud Sync Connected & Synchronized Successfully.")
-            else:
-                logger.info(f"Connecting to Local SQLite Persistent Database at '{self.local_db_path}'...")
-                self.conn = libsql.connect(database=self.local_db_path)
-        except Exception as e:
-            logger.error(f"Primary Database Connection Error: {str(e)}. Falling back to isolated SQLite...")
-            self.conn = libsql.connect(database=self.local_db_path)
-
-    def _sync_to_cloud(self) -> None:
-        """Triggers asynchronous synchronization with Turso Cloud."""
-        if self.turso_url and self.turso_token and self.conn:
-            try:
-                self.conn.sync()
+                logger.info("Turso Direct Cloud Connection Established Successfully.")
+                return
             except Exception as e:
-                logger.warning(f"Turso Sync Exception: {str(e)}")
+                logger.warning(
+                    f"Turso Remote Connection Handshake Failed ({str(e)}). "
+                    f"Failing over to Local Isolated SQLite Engine..."
+                )
+
+        # 2. Local Engine Fallback
+        logger.info(f"Initializing Local SQLite Engine at '{self.local_db_path}'...")
+        try:
+            self.conn = libsql.connect(database=self.local_db_path)
+            logger.info("Local SQLite Connection Ready.")
+        except Exception as e:
+            logger.critical(f"Critical System Failure: Unable to initialize SQLite Connection: {str(e)}")
+            raise e
 
     def _bootstrap_schema(self) -> None:
-        """Initializes relational tables and performance indexes for 1-Hour OTC Quants."""
+        """Initializes optimized relational tables and performance indexes for 1-Hour OTC Trading."""
         try:
             cursor = self.conn.cursor()
 
-            # 1. Institutional Pattern Memory Repository
+            # 1. OTC Pattern Memory Repository
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS pattern_memory (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +104,7 @@ class DatabaseManager:
                 )
             """)
 
-            # 2. Historical Trading Signal Execution Logs
+            # 2. Live Signal Execution History
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS signal_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,22 +119,31 @@ class DatabaseManager:
                 )
             """)
 
-            # 3. Optimization Indexes for Ultra-Fast Retrieval
+            # 3. Quant Performance Metrics
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS performance_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    metric_key TEXT UNIQUE NOT NULL,
+                    metric_value REAL NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Performance Indexes for Faster Lookups
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_pattern_lookup ON pattern_memory(primary_trend, rejection_zone);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_signal_users ON signal_logs(user_id);")
 
             self.conn.commit()
-            self._sync_to_cloud()
-            logger.info("Database Schema & Indexes Verified Successfully.")
+            logger.info("Database Schema & Institutional Indexes Verified Successfully.")
         except Exception as e:
             logger.error(f"Failed to Bootstrap Database Schema: {str(e)}")
 
     # ------------------------------------------------------------------
-    # Core Quant Operations
+    # Data Query & Insertion Core
     # ------------------------------------------------------------------
 
     def insert_pattern(self, sha256_hash: str, timeframe: str, data_1h: Dict[str, Any]) -> bool:
-        """Stores structured 1-Hour candle screenshot analysis into database memory."""
+        """Stores structured 1-Hour candle screenshot pattern analysis into database memory."""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
@@ -134,11 +161,10 @@ class DatabaseManager:
                 )
             )
             self.conn.commit()
-            self._sync_to_cloud()
-            logger.info(f"Pattern memory saved: Hash {sha256_hash[:8]} | Timeframe: {timeframe}")
+            logger.info(f"Pattern Hash [{sha256_hash[:8]}] stored successfully.")
             return True
         except Exception as e:
-            logger.warning(f"Pattern Hash Collision or Save Error ({sha256_hash[:8]}): {str(e)}")
+            logger.warning(f"Pattern Record Collision or Insertion Error ({sha256_hash[:8]}): {str(e)}")
             return False
 
     def query_pattern_statistics(self, trend_1h: str, rejection_1h: str) -> Dict[str, Any]:
@@ -166,7 +192,7 @@ class DatabaseManager:
             return {"matched_records": 0, "historical_avg_confidence": 0.0}
 
     def log_live_signal(self, user_id: int, signal_data: Dict[str, Any]) -> bool:
-        """Logs user predictions for operational analysis."""
+        """Logs user trading predictions for backtesting and performance analytics."""
         try:
             cursor = self.conn.cursor()
             cursor.execute(
@@ -184,10 +210,10 @@ class DatabaseManager:
                 )
             )
             self.conn.commit()
-            self._sync_to_cloud()
+            logger.info(f"Signal logged for User ID [{user_id}] | Decision: {signal_data.get('decision')}")
             return True
         except Exception as e:
-            logger.error(f"Failed to log live signal: {str(e)}")
+            logger.error(f"Failed to log signal for user {user_id}: {str(e)}")
             return False
 
     def get_total_nodes(self) -> int:
@@ -195,12 +221,14 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM pattern_memory")
-            return cursor.fetchone()[0]
+            row = cursor.fetchone()
+            return row[0] if row else 0
         except Exception:
             return 0
 
 
-if __name__ == "__main__":
-    db = DatabaseManager()
-    print(f"Database Core Ready. Total Memory Nodes: {db.get_total_nodes()}")
+# Global Instantiation
+db = DatabaseManager()
 
+if __name__ == "__main__":
+    print(f"Database Core Initialized Successfully. Total Patterns Stored: {db.get_total_nodes()}")
