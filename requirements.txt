@@ -1,12 +1,29 @@
+# Telegram Bot Core Framework
 python-telegram-bot==20.8
+
+# Multimodal AI & Gemini Engine
 google-generativeai==0.8.3
+
+# High-Performance Hybrid Database (Turso + SQLite)
+libsql-experimental==0.0.34
+
+# Computer Vision & Image Processing
 Pillow==10.4.0
 imagehash==4.3.1
-numpy>=1.24.0,<2.0.0
-pandas>=2.0.0,<2.2.0
-scikit-learn>=1.3.0
+
+# Quantitative Analytics & Data Science Core
+numpy==1.26.4
+pandas==2.2.0
+scikit-learn==1.3.0
+scipy==1.11.4
+
+# Production Web Server & Diagnostics Keep-Alive
 Flask==3.0.3
 gunicorn==22.0.0
+waitress==3.0.0
 requests==2.32.3
-python-dotenv==1.0.1
 
+# Infrastructure Security & Utilities
+python-dotenv==1.0.7
+cryptography==42.0.5
+pydantic==2.6.4
