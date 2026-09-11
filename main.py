@@ -3,27 +3,53 @@ import sys
 import json
 import logging
 import asyncio
+import hashlib
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
-# Dynamic module path resolution for enterprise server environments
+# ============================================================
+# PATH
+# ============================================================
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
-    filters
+    filters,
 )
 
-# Custom Institutional Engine Imports with Fallback Safeguards
+
+# ============================================================
+# CUSTOM MODULES
+# ============================================================
+
 try:
-    from config import TELEGRAM_BOT_TOKEN, DATABASE_FILE, logger
+    from config import (
+        TELEGRAM_BOT_TOKEN,
+        DATABASE_FILE,
+        logger,
+    )
+
     from database import DatabaseManager
     from image_processor import ImageProcessor
     from session_manager import SessionManager, SessionState
@@ -35,302 +61,1368 @@ try:
     from report_engine import ReportEngine
     from vision_gemini import VisionGeminiEngine
     from server import start_web_server
+
 except ImportError as err:
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("Quotex_OTC_Quant_Enterprise_Deep")
-    logger.critical(f"Critical Module Import Failure -> {str(err)}")
-    TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-    DATABASE_FILE = "otc_quant_memory.db"
-    def start_web_server(): pass
 
-# ------------------------------------------------------------------
-# Global Institutional Core Engine Instances
-# ------------------------------------------------------------------
-db = DatabaseManager() if 'DatabaseManager' in globals() else None
-image_proc = ImageProcessor() if 'ImageProcessor' in globals() else None
-sessions = SessionManager(session_ttl_seconds=1800) if 'SessionManager' in globals() else None
-pattern_eng = PatternEngine() if 'PatternEngine' in globals() else None
-liquidity_eng = LiquidityEngine() if 'LiquidityEngine' in globals() else None
-validation_eng = ValidationEngine(min_pattern_score=70.0, min_liquidity_score=60.0) if 'ValidationEngine' in globals() else None
-stats_eng = StatisticsEngine() if 'StatisticsEngine' in globals() else None
-outcome_eng = OutcomeEngine() if 'OutcomeEngine' in globals() else None
-report_eng = ReportEngine() if 'ReportEngine' in globals() else None
-vision_eng = VisionGeminiEngine() if 'VisionGeminiEngine' in globals() else None
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
-# Concurrency Mutex Lock for Safe Multi-Threading
-batch_processing_lock = asyncio.Lock()
+    logger = logging.getLogger("LiquidityResearchBot")
 
-# Authorized System Administrators
-ADMIN_USER_IDS = [123456789]  # আপনার টেলিগ্রাম আইডি দিন
+    logger.critical(
+        "Module import failure: %s",
+        str(err),
+    )
 
-# Enterprise UI Dashboard Layout
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [
-        [KeyboardButton("🎯 Deep 1H OTC Signal Engine"), KeyboardButton("🧠 Deep Pattern Training Mode")],
-        [KeyboardButton("📊 Advanced Market Diagnostics"), KeyboardButton("📝 Record Trade Outcome")],
-        [KeyboardButton("🔒 Lock Memory Core"), KeyboardButton("⚡ System Health Check")]
-    ],
-    resize_keyboard=True
+    TELEGRAM_BOT_TOKEN = os.getenv(
+        "TELEGRAM_BOT_TOKEN",
+        ""
+    )
+
+    DATABASE_FILE = os.getenv(
+        "DATABASE_FILE",
+        "data/research.db"
+    )
+
+    DatabaseManager = None
+    ImageProcessor = None
+    SessionManager = None
+    SessionState = None
+    PatternEngine = None
+    LiquidityEngine = None
+    ValidationEngine = None
+    StatisticsEngine = None
+    OutcomeEngine = None
+    ReportEngine = None
+    VisionGeminiEngine = None
+
+    def start_web_server():
+        return None
+
+
+# ============================================================
+# GLOBAL ENGINES
+# ============================================================
+
+db = (
+    DatabaseManager()
+    if DatabaseManager
+    else None
 )
 
-# ------------------------------------------------------------------
-# Advanced OTC Algorithm & Fractional Kelly Risk Manager
-# ------------------------------------------------------------------
-class InstitutionalOTCQuantMaster:
-    """
-    Advanced Quantitative Risk & OTC Algorithm Profiler.
-    Applies Fractional Kelly Criterion combined with OTC Trap Detection.
-    """
-    @staticmethod
-    def evaluate_otc_deep_metrics(win_probability: float, payout_rate: float = 0.85, balance: float = 100.0, market_condition: str = "NORMAL") -> Dict[str, Any]:
-        p = win_probability / 100.0
-        q = 1.0 - p
-        b = payout_rate
-        
-        kelly_fraction = (b * p - q) / b if b > 0 else 0.0
-        multiplier = 0.45  # Ultra-Conservative Institutional Multiplier
-        
-        if market_condition == "OTC_MANIPULATION_HIGH":
-            multiplier = 0.20
-        elif market_condition == "STABLE_TREND":
-            multiplier = 0.55
-            
-        adjusted_fraction = max(0.0, kelly_fraction * multiplier)
-        recommended_stake = round(balance * adjusted_fraction, 2)
-        
-        return {
-            "kelly_raw_pct": round(kelly_fraction * 100, 2),
-            "safe_allocation_pct": round(adjusted_fraction * 100, 2),
-            "suggested_stake_usd": max(1.0, recommended_stake) if kelly_fraction > 0 else 1.0,
-            "algorithm_integrity": "SECURE OTC FLOW" if market_condition != "OTC_MANIPULATION_HIGH" else "HIGH RISK BROKER TRAP DETECTED"
-        }
+image_proc = (
+    ImageProcessor()
+    if ImageProcessor
+    else None
+)
+
+sessions = (
+    SessionManager(session_ttl_seconds=1800)
+    if SessionManager
+    else None
+)
+
+pattern_eng = (
+    PatternEngine()
+    if PatternEngine
+    else None
+)
+
+liquidity_eng = (
+    LiquidityEngine()
+    if LiquidityEngine
+    else None
+)
+
+validation_eng = (
+    ValidationEngine(
+        min_pattern_score=60.0,
+        min_liquidity_score=50.0,
+    )
+    if ValidationEngine
+    else None
+)
+
+stats_eng = (
+    StatisticsEngine()
+    if StatisticsEngine
+    else None
+)
+
+outcome_eng = (
+    OutcomeEngine()
+    if OutcomeEngine
+    else None
+)
+
+report_eng = (
+    ReportEngine()
+    if ReportEngine
+    else None
+)
+
+vision_eng = (
+    VisionGeminiEngine()
+    if VisionGeminiEngine
+    else None
+)
+
+
+# ============================================================
+# CONCURRENCY
+# ============================================================
+
+batch_processing_lock = asyncio.Lock()
+
+
+# ============================================================
+# ADMIN
+# ============================================================
+
+# নিজের Telegram user ID এখানে দিতে পারো।
+# খালি list দিলে diagnostics সবার জন্য open হবে।
+ADMIN_USER_IDS = []
+
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_USER_IDS or len(ADMIN_USER_IDS) == 0
-
-# ------------------------------------------------------------------
-# Telegram Command Handlers
-# ------------------------------------------------------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    if sessions:
-        user_session = sessions.get_or_create_session(user_id)
-        user_session.reset()
-
-    welcome_text = (
-        "🏛️ **Quotex OTC Institutional Deep Quant Engine v12.0**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "স্বাগতম! এটি ওটিসি মার্কেটের ভেতরের অ্যালগরিদম, লিকুইডিটি ট্র্যাপ এবং প্রাইস অ্যাকশন নিখুঁতভাবে রিড করার জন্য তৈরি করা একটি আল্ট্রা-পাওয়ারফুল কোয়ান্ট বট।\n\n"
-        "⚙️ **কঠোর প্রাতিষ্ঠানিক নিয়মাবলী:**\n"
-        "• **1-Hour Strict Timeframe:** এই বট শুধুমাত্র **১ ঘণ্টার (1H)** ক্যান্ডেলস্টিক স্ট্রাকচার এনালাইসিস করে। ছোট টাইমফ্রেম সম্পূর্ণ নিষিদ্ধ।\n"
-        "• **OTC Algorithm Mirroring:** ব্রোকারের কৃত্রিম ম্যানিপুলেশন এবং ফেক ব্রেকআউট ফিল্টার করে আসল ডিরেকশন বের করে।\n"
-        "• **Instant AI Execution:** স্ক্রিনশট আপলোড করার সাথে সাথেই **UP / DOWN** সিগন্যাল, এক্যুরেসি এবং ক্যালি রিস্ক ম্যানেজমেন্ট প্রদান করবে।\n\n"
-        "👇 নিচের মেনু থেকে আপনার অপারেশন সিলেক্ট করুন:"
+    return (
+        not ADMIN_USER_IDS
+        or user_id in ADMIN_USER_IDS
     )
-    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=MAIN_KEYBOARD)
 
-async def diagnostics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        await update.message.reply_text("⛔ আপনার এই ডায়াগনস্টিকস কমান্ড ব্যবহারের অনুমতি নেই।")
-        return
 
-    total_nodes = db.get_total_nodes() if db and hasattr(db, 'get_total_nodes') else 1420
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+# ============================================================
+# USER SESSION MEMORY
+# ============================================================
 
-    report = (
-        "⚡ **Deep Quant Core Diagnostics Report v12.0**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• **System UTC Time:** `{timestamp}`\n"
-        f"• **Cloud DB Synchronization:** `ACTIVE (Turso Secure)`\n"
-        f"• **Active AI Memory Nodes:** `{total_nodes}`\n"
-        f"• **Vision Extraction Model:** `Gemini-1.5-Flash Multi-Modal`\n"
-        f"• **Primary Strategy:** `1-HOUR EXCLUSIVE OTC QUANT`\n"
-        f"• **Liquidity & Trap Engine:** `FVG + Order Block Sweep Active`\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "✅ **System Status:** ALL ALGORITHMIC MODULES FULLY HEALTHY"
-    )
-    await update.message.reply_text(report, parse_mode="Markdown")
+# 1D এবং 1H screenshot একই analysis session-এ রাখার জন্য।
+#
+# Structure:
+#
+# {
+#   user_id: {
+#       "1D": {
+#           "path": "...",
+#           "hash": "...",
+#           "created_at": "..."
+#       },
+#       "1H": {
+#           ...
+#       }
+#   }
+# }
 
-# ------------------------------------------------------------------
-# Main Text Menu Controller
-# ------------------------------------------------------------------
-async def handle_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    text = update.message.text.strip()
+pending_charts: Dict[int, Dict[str, Dict[str, Any]]] = {}
 
-    if text in ["🧠 Deep Pattern Training Mode", "🧠 Pattern Training Mode"]:
-        if sessions:
-            sessions.set_state(user_id, SessionState.TRAINING)
-        await update.message.reply_text(
-            "🧠 **Deep AI Pattern Training Mode Activated!**\n\n"
-            "অতীতের ১-ঘণ্টার (1H) ওটিসি মোমবাতি চার্টের স্ক্রিনশট পাঠাতে থাকুন। "
-            "এআই প্রতিটি চার্টের স্ট্রাকচার ও লিকুইডিটি জোন ডিপ-লার্নিং মেমোরিতে চিরতরে সেভ করে নেবে।"
-        )
 
-    elif text == "🔒 Lock Memory Core":
-        if sessions:
-            sessions.clear_session(user_id)
-        total_nodes = db.get_total_nodes() if db and hasattr(db, 'get_total_nodes') else 0
-        await update.message.reply_text(
-            f"🔒 **Memory Core Safely Locked & Encrypted!**\n"
-            f"বর্তমান ক্লাউড ডাটাবেজে সংরক্ষিত মোট প্যাটার্ন নোড: `{total_nodes}` টি।"
-        )
+# ============================================================
+# TELEGRAM KEYBOARD
+# ============================================================
 
-    elif text in ["🎯 Deep 1H Signal Engine", "🎯 Instant 1H Signal Engine"]:
-        if sessions:
-            sessions.set_state(user_id, SessionState.ANALYZING_1H)
-        await update.message.reply_text(
-            "🎯 **Deep 1H Signal Engine Online!**\n\n"
-            "📸 Quotex ওটিসি মার্কেটের ১ ঘণ্টার (1H) ক্যান্ডেলস্টিক চার্টের স্ক্রিনশট পাঠান। "
-            "বট বাজারের অ্যালগরিদম ও ট্র্যাপ এনালাইসিস করে পরবর্তী ক্যান্ডেলের সঠিক দিক জানিয়ে দেবে।"
-        )
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [
+            KeyboardButton("🧠 Training Mode"),
+            KeyboardButton("🔎 1D + 1H Research"),
+        ],
+        [
+            KeyboardButton("📊 Statistics"),
+            KeyboardButton("📝 Record Outcome"),
+        ],
+        [
+            KeyboardButton("🔒 Lock Memory"),
+            KeyboardButton("⚡ System Health"),
+        ],
+        [
+            KeyboardButton("❓ Help"),
+        ],
+    ],
+    resize_keyboard=True,
+)
 
-    elif text == "📊 Advanced Market Diagnostics":
-        total_nodes = db.get_total_nodes() if db and hasattr(db, 'get_total_nodes') else 0
-        await update.message.reply_text(
-            f"📊 **Deep System Analytics & Parameters:**\n"
-            f"• **AI Memory Nodes:** `{total_nodes}`\n"
-            f"• **Execution Timeframe:** `1-HOUR (STRICT)`\n"
-            f"• **Risk Model:** `Fractional Kelly Criterion + Volatility Filter`\n"
-            f"• **Market Type:** `Quotex OTC Synthetic Algorithm`"
-        )
 
-    elif text == "📝 Record Trade Outcome":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ WIN", callback_data="record_WIN"),
-             InlineKeyboardButton("❌ LOSS", callback_data="record_LOSS"),
-             InlineKeyboardButton("🔄 REFUND", callback_data="record_REFUND")]
-        ])
-        await update.message.reply_text(
-            "📝 **সর্বশেষ ১-ঘণ্টার ট্রেড রেজাল্ট সিলেক্ট করুন:**\n"
-            "এটি বেয়েসিয়ান প্রোবাবিলিটি মডেলকে রিয়েল-টাইমে আরও নিখুঁত করতে সাহায্য করবে।",
-            reply_markup=keyboard
-        )
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
 
-    elif text == "⚡ System Health Check":
-        await diagnostics_command(update, context)
+def get_user_id(update: Update) -> Optional[int]:
 
-# ------------------------------------------------------------------
-# Master Unified Image Processing Pipeline
-# ------------------------------------------------------------------
-async def handle_photo_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    
-    if sessions:
-        allowed, rate_msg = sessions.validate_request_rate(user_id)
-        if not allowed:
-            await update.message.reply_text(rate_msg)
-            return
+    if not update.effective_user:
+        return None
 
-    status_msg = await update.message.reply_text(
-        "⚡ **ডিপ কোয়ান্ট ভিশন ইঞ্জিন সক্রিয় হয়েছে!**\n"
-        "🔍 ওটিসি অ্যালগরিদম, অর্ডার ব্লক এবং লিকুইডিটি ট্র্যাপ স্ক্যানিং চলছে...\n"
-        "⏳ অনুগ্রহ করে ৩-৮ সেকেন্ড অপেক্ষা করুন..."
-    )
+    return update.effective_user.id
+
+
+def clean_old_session(user_id: int) -> None:
+
+    if user_id in pending_charts:
+        pending_charts[user_id].clear()
+
+
+def calculate_file_hash(file_path: str) -> str:
+
+    sha256 = hashlib.sha256()
+
+    with open(file_path, "rb") as file:
+
+        while True:
+
+            chunk = file.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            sha256.update(chunk)
+
+    return sha256.hexdigest()
+
+
+def safe_json(value: Any) -> Dict[str, Any]:
+
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, str):
+
+        try:
+            parsed = json.loads(value)
+
+            if isinstance(parsed, dict):
+                return parsed
+
+        except Exception:
+            pass
+
+    return {}
+
+
+def normalize_bias(value: Any) -> str:
+
+    if not value:
+        return "MIXED"
+
+    text = str(value).upper()
+
+    if "BULL" in text:
+        return "BULLISH"
+
+    if "BEAR" in text:
+        return "BEARISH"
+
+    if "UP" in text:
+        return "BULLISH"
+
+    if "DOWN" in text:
+        return "BEARISH"
+
+    return "MIXED"
+
+
+def extract_liquidity_text(result: Dict[str, Any]) -> str:
+
+    possible_fields = [
+        "liquidity",
+        "liquidity_zone",
+        "liquidity_analysis",
+        "liquidity_structure",
+        "liquidity_observation",
+    ]
+
+    for field in possible_fields:
+
+        value = result.get(field)
+
+        if value:
+            return str(value)
+
+    return "No clear liquidity information returned."
+
+
+def extract_structure_text(result: Dict[str, Any]) -> str:
+
+    possible_fields = [
+        "structure",
+        "market_structure",
+        "price_action",
+        "candle_structure",
+        "candle_anatomy",
+    ]
+
+    for field in possible_fields:
+
+        value = result.get(field)
+
+        if value:
+            return str(value)
+
+    return "No clear structure information returned."
+
+
+# ============================================================
+# VISION ANALYSIS
+# ============================================================
+
+async def analyze_single_chart(
+    image_path: str,
+    timeframe: str,
+) -> Dict[str, Any]:
+
+    if not vision_eng:
+        return {
+            "timeframe": timeframe,
+            "bias": "MIXED",
+            "liquidity": "Vision engine unavailable.",
+            "structure": "Vision engine unavailable.",
+        }
 
     try:
-        photo_file = await update.message.photo[-1].get_file()
-        image_bytes = await photo_file.download_as_bytearray()
-        
-        temp_filename = f"temp_deep_{user_id}_{int(datetime.now().timestamp())}.png"
-        with open(temp_filename, "wb") as f:
-            f.write(image_bytes)
 
-        # Vision Execution
-        vision_result = None
-        if vision_eng and hasattr(vision_eng, 'analyze_chart'):
-            vision_result = vision_eng.analyze_chart(temp_filename)
+        # Existing engine support
+        if hasattr(
+            vision_eng,
+            "analyze_chart"
+        ):
 
-        if not vision_result or not isinstance(vision_result, dict):
-            vision_result = {
-                "direction": "CALL (UP)",
-                "accuracy": "96.2%",
-                "timeframe": "1 Hour (1H Strict)",
-                "macro_trend": "Institutional OTC Bullish Expansion",
-                "liquidity_zone": "Demand Order Block Sweep Confirmed",
-                "pattern": "Algorithmic Reversal + FVG Fill",
-                "win_probability": "Extreme High Probability",
-                "market_condition": "STABLE_TREND"
-            }
+            result = vision_eng.analyze_chart(
+                image_path
+            )
 
-        # Kelly Risk Calculation
-        raw_prob = float(vision_result.get("accuracy", "95").replace("%", "").strip())
-        risk_data = InstitutionalOTCQuantMaster.evaluate_otc_deep_metrics(
-            win_probability=raw_prob,
-            market_condition=vision_result.get("market_condition", "STABLE_TREND")
+            # Async engine support
+            if asyncio.iscoroutine(result):
+                result = await result
+
+            result = safe_json(result)
+
+            result["timeframe"] = timeframe
+
+            return result
+
+        logger.warning(
+            "VisionGeminiEngine has no analyze_chart method."
         )
 
-        # Deep Detailed Report Formatting
-        formatted_signal = (
-            "🏛️ **INSTITUTIONAL OTC DEEP QUANT SIGNAL**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📈 **PREDICTION DIRECTION:** `{vision_result.get('direction', 'CALL (UP)')}`\n"
-            f"🔥 **AI ACCURACY SCORE:** `{vision_result.get('accuracy', '96.2%')}`\n"
-            f"⏰ **TIMEFRAME:** `{vision_result.get('timeframe', '1-Hour (1H)')}`\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🧠 **ডিপ মার্কেট অ্যালগরিদম ও টেকনিক্যাল বিশ্লেষণ:**\n"
-            f"• **Market Trend Structure:** {vision_result.get('macro_trend', 'Bullish Dynamic Flow')}\n"
-            f"• **Liquidity & Order Block:** {vision_result.get('liquidity_zone', 'Demand Zone Rejection')}\n"
-            f"• **Algorithmic Pattern:** {vision_result.get('pattern', 'Smart Money Confluence Reversal')}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "💰 **মানি ম্যানেজমেন্ট ও রিস্ক গাইডলাইন:**\n"
-            f"• **Kelly Allocation:** `{risk_data['safe_allocation_pct']}% of Account`\n"
-            f"• **Recommended Stake:** `${risk_data['suggested_stake_usd']} (Based on $100 Balance)`\n"
-            f"• **Algorithm Health:** `{risk_data['algorithm_integrity']}`\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 **ফাইনাল সিদ্ধান্ত:** আগামী ১-ঘণ্টার ক্যান্ডেলের জন্য অত্যন্ত আত্মবিশ্বাসের সাথে **{vision_result.get('direction', 'CALL (UP)')}** ট্রেড এক্সিকিউট করুন।"
+    except Exception as exc:
+
+        logger.error(
+            "Vision analysis failed for %s: %s",
+            timeframe,
+            str(exc),
+            exc_info=True,
         )
 
-        await status_msg.edit_text(formatted_signal, parse_mode="Markdown")
+    return {
+        "timeframe": timeframe,
+        "bias": "MIXED",
+        "liquidity": "Analysis unavailable.",
+        "structure": "Analysis unavailable.",
+    }
 
-    except Exception as err:
-        logger.error(f"Deep Quant Pipeline Execution Error: {str(err)}", exc_info=True)
-        await status_msg.edit_text(
-            "❌ **বিশ্লেষণে ত্রুটি ঘটেছে!**\n"
-            "অনুগ্রহ করে ক্যান্ডেলস্টিক টাইমফ্রেম এবং চার্ট পরিষ্কার দৃশ্যমান এমন একটি স্ক্রিনশট দিন।"
+
+# ============================================================
+# CROSS TIMEFRAME RESEARCH
+# ============================================================
+
+def combine_timeframes(
+    daily: Dict[str, Any],
+    hourly: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    daily_bias = normalize_bias(
+        daily.get("bias")
+        or daily.get("direction")
+        or daily.get("trend")
+    )
+
+    hourly_bias = normalize_bias(
+        hourly.get("bias")
+        or hourly.get("direction")
+        or hourly.get("trend")
+    )
+
+    # --------------------------------------------------------
+    # Alignment
+    # --------------------------------------------------------
+
+    if (
+        daily_bias == hourly_bias
+        and daily_bias in [
+            "BULLISH",
+            "BEARISH",
+        ]
+    ):
+        alignment = "ALIGNED"
+
+        research_bias = daily_bias
+
+    elif (
+        daily_bias in [
+            "BULLISH",
+            "BEARISH",
+        ]
+        and hourly_bias in [
+            "BULLISH",
+            "BEARISH",
+        ]
+        and daily_bias != hourly_bias
+    ):
+        alignment = "CONFLICT"
+
+        research_bias = "MIXED"
+
+    else:
+        alignment = "UNCLEAR"
+
+        research_bias = "MIXED"
+
+    return {
+        "research_bias": research_bias,
+        "daily_bias": daily_bias,
+        "hourly_bias": hourly_bias,
+        "alignment": alignment,
+    }
+
+
+# ============================================================
+# FORMAT RESEARCH REPORT
+# ============================================================
+
+def build_research_report(
+    daily: Dict[str, Any],
+    hourly: Dict[str, Any],
+) -> str:
+
+    combined = combine_timeframes(
+        daily,
+        hourly,
+    )
+
+    bias = combined["research_bias"]
+
+    alignment = combined["alignment"]
+
+    daily_liquidity = extract_liquidity_text(
+        daily
+    )
+
+    hourly_liquidity = extract_liquidity_text(
+        hourly
+    )
+
+    daily_structure = extract_structure_text(
+        daily
+    )
+
+    hourly_structure = extract_structure_text(
+        hourly
+    )
+
+    report = (
+        "🔬 **MULTI-TIMEFRAME LIQUIDITY RESEARCH**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        "📅 **1D CONTEXT**\n"
+        f"• Research Bias: `{combined['daily_bias']}`\n"
+        f"• Liquidity: {daily_liquidity}\n"
+        f"• Structure: {daily_structure}\n\n"
+
+        "⏱️ **1H STRUCTURE**\n"
+        f"• Research Bias: `{combined['hourly_bias']}`\n"
+        f"• Liquidity: {hourly_liquidity}\n"
+        f"• Structure: {hourly_structure}\n\n"
+
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        "🧩 **1D → 1H RELATIONSHIP**\n"
+        f"• Alignment: `{alignment}`\n\n"
+
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        f"🧭 **RESEARCH CLASSIFICATION:** `{bias}`\n\n"
+
+        "⚠️ এটি historical/chart research classification।\n"
+        "এটি কোনো নিশ্চিত next-candle prediction, "
+        "win probability বা real-money execution instruction নয়।"
+    )
+
+    return report
+
+
+# ============================================================
+# /START
+# ============================================================
+
+async def start_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    user_id = get_user_id(update)
+
+    if user_id is None:
+        return
+
+    clean_old_session(user_id)
+
+    if sessions:
+
+        try:
+
+            session = sessions.get_or_create_session(
+                user_id
+            )
+
+            session.reset()
+
+        except Exception as exc:
+
+            logger.warning(
+                "Session reset failed: %s",
+                str(exc),
+            )
+
+    welcome = (
+        "🔬 **Liquidity Research Bot**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        "এই bot historical/chart research-এর জন্য "
+        "1D এবং 1H chart structure বিশ্লেষণ করতে পারে।\n\n"
+
+        "📌 **Workflow**\n"
+        "1️⃣ Training Mode নির্বাচন করুন\n"
+        "2️⃣ 1D screenshot দিন\n"
+        "3️⃣ 1H screenshot দিন\n"
+        "4️⃣ Bot দুই timeframe-এর liquidity context "
+        "compare করবে\n"
+        "5️⃣ Research classification দেখাবে\n\n"
+
+        "🔎 Research classification:\n"
+        "• BULLISH\n"
+        "• BEARISH\n"
+        "• MIXED\n"
+        "• SKIP\n\n"
+
+        "⚠️ কোনো classification-কে নিশ্চিত ভবিষ্যৎ "
+        "candle result হিসেবে ধরা যাবে না।"
+    )
+
+    await update.message.reply_text(
+        welcome,
+        parse_mode="Markdown",
+        reply_markup=MAIN_KEYBOARD,
+    )
+
+
+# ============================================================
+# HELP
+# ============================================================
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    text = (
+        "❓ **HELP**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+        "🧠 **Training Mode**\n"
+        "Historical chart screenshot memory/research-এর "
+        "জন্য ব্যবহার করুন।\n\n"
+
+        "🔎 **1D + 1H Research**\n"
+        "প্রথমে 1D এবং পরে 1H screenshot দিন।\n\n"
+
+        "📝 **Record Outcome**\n"
+        "Historical sample-এর পরে actual outcome "
+        "record করার জন্য।\n\n"
+
+        "📊 **Statistics**\n"
+        "Stored research samples-এর statistics দেখাবে।\n\n"
+
+        "🔒 **Lock Memory**\n"
+        "Current image session বন্ধ করবে।"
+    )
+
+    await update.message.reply_text(
+        text,
+        parse_mode="Markdown",
+    )
+
+
+# ============================================================
+# DIAGNOSTICS
+# ============================================================
+
+async def diagnostics_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    user_id = get_user_id(update)
+
+    if user_id is None:
+        return
+
+    if not is_admin(user_id):
+
+        await update.message.reply_text(
+            "⛔ Diagnostics access restricted."
         )
-    finally:
-        if 'temp_filename' in locals() and os.path.exists(temp_filename):
+
+        return
+
+    try:
+
+        total_nodes = (
+            db.get_total_nodes()
+            if db and hasattr(
+                db,
+                "get_total_nodes"
+            )
+            else 0
+        )
+
+    except Exception:
+
+        total_nodes = 0
+
+    timestamp = datetime.now(
+        timezone.utc
+    ).strftime(
+        "%Y-%m-%d %H:%M:%S UTC"
+    )
+
+    report = (
+        "⚡ **SYSTEM HEALTH**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"• UTC: `{timestamp}`\n"
+        f"• Database nodes: `{total_nodes}`\n"
+        f"• Vision Engine: `{'READY' if vision_eng else 'MISSING'}`\n"
+        f"• Liquidity Engine: `{'READY' if liquidity_eng else 'MISSING'}`\n"
+        f"• Pattern Engine: `{'READY' if pattern_eng else 'MISSING'}`\n"
+        f"• Outcome Engine: `{'READY' if outcome_eng else 'MISSING'}`\n"
+        f"• Statistics Engine: `{'READY' if stats_eng else 'MISSING'}`\n"
+        "• Mode: `HISTORICAL / RESEARCH`\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ System check completed."
+    )
+
+    await update.message.reply_text(
+        report,
+        parse_mode="Markdown",
+    )
+
+
+# ============================================================
+# TEXT MENU
+# ============================================================
+
+async def handle_text_menu(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    user_id = get_user_id(update)
+
+    if user_id is None:
+        return
+
+    text = (
+        update.message.text.strip()
+        if update.message
+        and update.message.text
+        else ""
+    )
+
+    # --------------------------------------------------------
+    # TRAINING
+    # --------------------------------------------------------
+
+    if text in [
+        "🧠 Training Mode",
+        "🧠 Deep Pattern Training Mode",
+    ]:
+
+        clean_old_session(user_id)
+
+        if sessions and SessionState:
+
             try:
-                os.remove(temp_filename)
+                sessions.set_state(
+                    user_id,
+                    SessionState.TRAINING,
+                )
+            except Exception as exc:
+
+                logger.warning(
+                    "Training state failed: %s",
+                    str(exc),
+                )
+
+        await update.message.reply_text(
+            "🧠 **TRAINING MODE ACTIVE**\n\n"
+            "Historical 1D অথবা 1H chart screenshot পাঠান।\n\n"
+            "প্রথম screenshot-এর আগে লিখুন:\n"
+            "`1D`\n\n"
+            "তারপর দ্বিতীয় screenshot-এর আগে লিখুন:\n"
+            "`1H`\n\n"
+            "Bot দুইটি chart একই research session-এ রাখবে।",
+            parse_mode="Markdown",
+        )
+
+    # --------------------------------------------------------
+    # RESEARCH
+    # --------------------------------------------------------
+
+    elif text in [
+        "🔎 1D + 1H Research",
+        "🎯 Deep 1H Signal Engine",
+    ]:
+
+        clean_old_session(user_id)
+
+        if sessions and SessionState:
+
+            try:
+                sessions.set_state(
+                    user_id,
+                    SessionState.ANALYZING_1H,
+                )
             except Exception:
                 pass
 
-# ------------------------------------------------------------------
-# Callback Query Handler
-# ------------------------------------------------------------------
-async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-
-    if query.data.startswith("record_"):
-        outcome = query.data.split("_")[1]
-        await query.edit_message_text(
-            f"✅ **ট্রেড রেজাল্ট সফলভাবে রেকর্ড করা হয়েছে:** `{outcome}`\n"
-            f"এআই কোয়ান্ট মেমোরি ও বেয়েসিয়ান নেটওয়ার্ক সফলভাবে আপডেট হয়েছে।"
+        await update.message.reply_text(
+            "🔎 **1D + 1H RESEARCH MODE**\n\n"
+            "প্রথমে `1D` লিখে 1D screenshot পাঠান।\n"
+            "তারপর `1H` লিখে 1H screenshot পাঠান।\n\n"
+            "দুই timeframe-এর liquidity structure "
+            "compare করা হবে।",
+            parse_mode="Markdown",
         )
 
-# ------------------------------------------------------------------
-# Server Execution Loop
-# ------------------------------------------------------------------
+    # --------------------------------------------------------
+    # LOCK
+    # --------------------------------------------------------
+
+    elif text in [
+        "🔒 Lock Memory",
+        "🔒 Lock Memory Core",
+    ]:
+
+        clean_old_session(user_id)
+
+        if sessions:
+
+            try:
+                sessions.clear_session(
+                    user_id
+                )
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            "🔒 **Research Session Locked**\n\n"
+            "Current 1D/1H screenshot session cleared."
+        )
+
+    # --------------------------------------------------------
+    # STATISTICS
+    # --------------------------------------------------------
+
+    elif text in [
+        "📊 Statistics",
+        "📊 Advanced Market Diagnostics",
+    ]:
+
+        try:
+
+            total_nodes = (
+                db.get_total_nodes()
+                if db
+                and hasattr(
+                    db,
+                    "get_total_nodes"
+                )
+                else 0
+            )
+
+        except Exception:
+
+            total_nodes = 0
+
+        await update.message.reply_text(
+            "📊 **RESEARCH STATISTICS**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"Stored nodes: `{total_nodes}`\n"
+            "Mode: `Historical Research`\n\n"
+            "বেশি historical samples জমা হলে "
+            "statistics আরও meaningful হবে।",
+            parse_mode="Markdown",
+        )
+
+    # --------------------------------------------------------
+    # OUTCOME
+    # --------------------------------------------------------
+
+    elif text in [
+        "📝 Record Outcome",
+        "📝 Record Trade Outcome",
+    ]:
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🟢 BULLISH",
+                        callback_data="outcome_BULLISH",
+                    ),
+                    InlineKeyboardButton(
+                        "🔴 BEARISH",
+                        callback_data="outcome_BEARISH",
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⚪ MIXED",
+                        callback_data="outcome_MIXED",
+                    ),
+                ],
+            ]
+        )
+
+        await update.message.reply_text(
+            "📝 **Historical Outcome Record**\n\n"
+            "পরবর্তী historical candle-এর actual "
+            "direction দেখে outcome নির্বাচন করুন।",
+            reply_markup=keyboard,
+        )
+
+    # --------------------------------------------------------
+    # HEALTH
+    # --------------------------------------------------------
+
+    elif text in [
+        "⚡ System Health",
+        "⚡ System Health Check",
+    ]:
+
+        await diagnostics_command(
+            update,
+            context,
+        )
+
+    # --------------------------------------------------------
+    # HELP
+    # --------------------------------------------------------
+
+    elif text == "❓ Help":
+
+        await help_command(
+            update,
+            context,
+        )
+
+    # --------------------------------------------------------
+    # 1D / 1H LABEL
+    # --------------------------------------------------------
+
+    elif text.upper() in [
+        "1D",
+        "1H",
+    ]:
+
+        timeframe = text.upper()
+
+        if user_id not in pending_charts:
+
+            pending_charts[user_id] = {}
+
+        pending_charts[user_id]["requested_timeframe"] = {
+            "timeframe": timeframe,
+            "created_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+
+        await update.message.reply_text(
+            f"✅ `{timeframe}` selected.\n\n"
+            f"এখন {timeframe} chart screenshot পাঠান।",
+            parse_mode="Markdown",
+        )
+
+
+# ============================================================
+# PHOTO HANDLER
+# ============================================================
+
+async def handle_photo_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    user_id = get_user_id(update)
+
+    if user_id is None:
+        return
+
+    # --------------------------------------------------------
+    # RATE LIMIT
+    # --------------------------------------------------------
+
+    if sessions:
+
+        try:
+
+            allowed, rate_msg = (
+                sessions.validate_request_rate(
+                    user_id
+                )
+            )
+
+            if not allowed:
+
+                await update.message.reply_text(
+                    rate_msg
+                )
+
+                return
+
+        except Exception as exc:
+
+            logger.warning(
+                "Rate validation failed: %s",
+                str(exc),
+            )
+
+    # --------------------------------------------------------
+    # TIMEFRAME
+    # --------------------------------------------------------
+
+    requested = (
+        pending_charts
+        .get(user_id, {})
+        .get("requested_timeframe")
+    )
+
+    if not requested:
+
+        await update.message.reply_text(
+            "⚠️ আগে `1D` অথবা `1H` লিখে timeframe নির্বাচন করুন।"
+        )
+
+        return
+
+    timeframe = requested["timeframe"]
+
+    status_msg = await update.message.reply_text(
+        f"🔍 **{timeframe} chart received.**\n"
+        "Liquidity research চলছে...\n"
+        "⏳ একটু অপেক্ষা করুন...",
+        parse_mode="Markdown",
+    )
+
+    temp_filename = None
+
+    try:
+
+        # ----------------------------------------------------
+        # LOCK
+        # ----------------------------------------------------
+
+        async with batch_processing_lock:
+
+            # ------------------------------------------------
+            # DOWNLOAD
+            # ------------------------------------------------
+
+            photo = update.message.photo[-1]
+
+            photo_file = await photo.get_file()
+
+            image_bytes = (
+                await photo_file.download_as_bytearray()
+            )
+
+            # ------------------------------------------------
+            # TEMP FILE
+            # ------------------------------------------------
+
+            temp_filename = os.path.join(
+                CURRENT_DIR,
+                (
+                    f"temp_{user_id}_"
+                    f"{timeframe}_"
+                    f"{int(datetime.now().timestamp())}.jpg"
+                ),
+            )
+
+            with open(
+                temp_filename,
+                "wb",
+            ) as file:
+
+                file.write(image_bytes)
+
+            # ------------------------------------------------
+            # HASH
+            # ------------------------------------------------
+
+            image_hash = calculate_file_hash(
+                temp_filename
+            )
+
+            # ------------------------------------------------
+            # DUPLICATE CHECK
+            # ------------------------------------------------
+
+            existing = (
+                pending_charts
+                .get(user_id, {})
+                .get(timeframe)
+            )
+
+            if (
+                existing
+                and existing.get("hash")
+                == image_hash
+            ):
+
+                await status_msg.edit_text(
+                    "⚠️ একই screenshot আবার পাঠানো হয়েছে।"
+                )
+
+                return
+
+            # ------------------------------------------------
+            # VISION
+            # ------------------------------------------------
+
+            result = await analyze_single_chart(
+                temp_filename,
+                timeframe,
+            )
+
+            # ------------------------------------------------
+            # STORE SESSION
+            # ------------------------------------------------
+
+            if user_id not in pending_charts:
+
+                pending_charts[user_id] = {}
+
+            pending_charts[user_id][timeframe] = {
+                "path": temp_filename,
+                "hash": image_hash,
+                "result": result,
+                "created_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            }
+
+            # requested flag remove
+            pending_charts[user_id].pop(
+                "requested_timeframe",
+                None,
+            )
+
+            # ------------------------------------------------
+            # RESPONSE
+            # ------------------------------------------------
+
+            available = pending_charts[
+                user_id
+            ]
+
+            if (
+                "1D" in available
+                and "1H" in available
+            ):
+
+                daily_result = available[
+                    "1D"
+                ]["result"]
+
+                hourly_result = available[
+                    "1H"
+                ]["result"]
+
+                report = build_research_report(
+                    daily_result,
+                    hourly_result,
+                )
+
+                await status_msg.edit_text(
+                    report,
+                    parse_mode="Markdown",
+                )
+
+            else:
+
+                missing = (
+                    "1H"
+                    if timeframe == "1D"
+                    else "1D"
+                )
+
+                await status_msg.edit_text(
+                    f"✅ **{timeframe} analysis stored.**\n\n"
+                    f"এখন `{missing}` screenshot দিন।\n\n"
+                    "তারপর 1D + 1H cross-timeframe "
+                    "research report তৈরি হবে।",
+                    parse_mode="Markdown",
+                )
+
+    except Exception as exc:
+
+        logger.error(
+            "Photo pipeline error: %s",
+            str(exc),
+            exc_info=True,
+        )
+
+        await status_msg.edit_text(
+            "❌ **Analysis failed.**\n\n"
+            "Screenshot পরিষ্কারভাবে পাঠান এবং "
+            "সঠিক timeframe নির্বাচন করুন।",
+            parse_mode="Markdown",
+        )
+
+    finally:
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        # We do NOT delete the temp file immediately if
+        # it is being held for 1D+1H comparison.
+        # Old files can be cleaned later.
+        # ----------------------------------------------------
+
+        pass
+
+
+# ============================================================
+# CALLBACK
+# ============================================================
+
+async def handle_callback_query(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    query = update.callback_query
+
+    await query.answer()
+
+    data = query.data or ""
+
+    if data.startswith(
+        "outcome_"
+    ):
+
+        outcome = data.split(
+            "_",
+            1
+        )[1]
+
+        # ----------------------------------------------------
+        # Optional database integration
+        # ----------------------------------------------------
+
+        saved = False
+
+        if db:
+
+            possible_methods = [
+                "record_outcome",
+                "save_outcome",
+                "add_outcome",
+            ]
+
+            for method_name in possible_methods:
+
+                if hasattr(
+                    db,
+                    method_name
+                ):
+
+                    try:
+
+                        method = getattr(
+                            db,
+                            method_name
+                        )
+
+                        method(
+                            user_id=query.from_user.id,
+                            outcome=outcome,
+                        )
+
+                        saved = True
+
+                        break
+
+                    except TypeError:
+
+                        # Different signature.
+                        # Do not crash the bot.
+                        continue
+
+                    except Exception as exc:
+
+                        logger.warning(
+                            "Outcome save failed: %s",
+                            str(exc),
+                        )
+
+                        break
+
+        status = (
+            "saved to research database"
+            if saved
+            else "recorded for the current session"
+        )
+
+        await query.edit_message_text(
+            "📝 **Historical Outcome Recorded**\n\n"
+            f"Outcome: `{outcome}`\n"
+            f"Status: `{status}`\n\n"
+            "এই data পরে historical error/statistics "
+            "analysis-এ ব্যবহার করা যাবে।",
+            parse_mode="Markdown",
+        )
+
+
+# ============================================================
+# ERROR HANDLER
+# ============================================================
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+
+    logger.error(
+        "Telegram handler error: %s",
+        context.error,
+        exc_info=True,
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
 def main() -> None:
-    token = TELEGRAM_BOT_TOKEN or os.getenv("BOT_TOKEN", "")
+
+    token = (
+        TELEGRAM_BOT_TOKEN
+        or os.getenv(
+            "BOT_TOKEN",
+            ""
+        )
+    )
+
     if not token:
-        print("CRITICAL ERROR: BOT_TOKEN is missing from environment variables!")
+
+        logger.critical(
+            "TELEGRAM_BOT_TOKEN is missing."
+        )
+
         sys.exit(1)
 
-    start_web_server()
-    app = ApplicationBuilder().token(token).build()
+    # --------------------------------------------------------
+    # WEB SERVER
+    # --------------------------------------------------------
 
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("diagnostics", diagnostics_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_menu))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_input))
-    app.add_handler(CallbackQueryHandler(handle_callback_query))
+    try:
 
-    print("🚀 Quotex OTC Institutional Deep Quant Server is Live & Running...")
-    app.run_polling()
+        start_web_server()
+
+    except Exception as exc:
+
+        logger.warning(
+            "Web server failed to start: %s",
+            str(exc),
+        )
+
+    # --------------------------------------------------------
+    # TELEGRAM APP
+    # --------------------------------------------------------
+
+    application = (
+        ApplicationBuilder()
+        .token(token)
+        .build()
+    )
+
+    # Commands
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "help",
+            help_command,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "diagnostics",
+            diagnostics_command,
+        )
+    )
+
+    # Text menu
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            handle_text_menu,
+        )
+    )
+
+    # Photos
+    application.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            handle_photo_input,
+        )
+    )
+
+    # Buttons
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_callback_query
+        )
+    )
+
+    # Errors
+    application.add_error_handler(
+        error_handler
+    )
+
+    logger.info(
+        "Liquidity Research Bot started."
+    )
+
+    # --------------------------------------------------------
+    # POLLING
+    # --------------------------------------------------------
+
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES
+    )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     main()
