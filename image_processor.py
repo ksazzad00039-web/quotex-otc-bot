@@ -1,121 +1,221 @@
 import io
 import hashlib
 import logging
-from typing import Tuple, Optional
-from PIL import Image, ImageEnhance, ImageOps
+from typing import Tuple, Optional, Dict, Any
+from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 
-logger = logging.getLogger("OTC_Enterprise_Quant.ImageProcessor")
+# Fallback Configuration Logging Setup
+try:
+    from config import logger
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    logger = logging.getLogger("OTC_Enterprise_Quant.ImageProcessor")
+
 
 class ImageProcessor:
     """
-    Enterprise-grade image preprocessing engine for chart screenshots.
-    Handles image dynamic scaling, compression, hashing, contrast optimization,
-    and metadata cleanup before feeding image bytes to AI Vision engines.
+    Enterprise-Grade Image Preprocessing Pipeline for OTC Binary Options Charts.
+    Handles Chart Normalization, Dual Cryptographic Hashing (SHA256 + dHash/aHash),
+    Contrast Tuning, and Aspect Ratio Validation for 1-Hour & 1-Day Chart Screenshots.
     """
 
-    def __init__(self, max_width: int = 1920, max_height: int = 1080, quality: int = 85):
+    def __init__(self, max_width: int = 1920, max_height: int = 1080, quality: int = 88):
         self.max_width = max_width
         self.max_height = max_height
         self.quality = quality
 
     def compute_sha256_hash(self, image_bytes: bytes) -> str:
-        """
-        Computes a SHA-256 cryptographic hash of the raw image bytes 
-        to track and filter duplicate screenshot submissions.
-        """
+        """Computes cryptographic SHA-256 hash to identify exact duplicate screenshot files."""
         return hashlib.sha256(image_bytes).hexdigest()
 
-    def compute_perceptual_hash(self, image_bytes: bytes) -> str:
-        """
-        Computes a simplistic average perceptual hash (aHash) for visual similarity matching.
-        Helps detect visually identical charts even if rendered with slight compression artifacts.
-        """
+    def compute_perceptual_ahash(self, image_bytes: bytes) -> str:
+        """Computes Average Perceptual Hash (aHash) for baseline chart visual matching."""
         try:
             with Image.open(io.BytesIO(image_bytes)) as img:
                 img = img.convert("L").resize((8, 8), Image.Resampling.LANCZOS)
                 pixels = list(img.getdata())
                 avg = sum(pixels) / len(pixels)
                 bits = "".join(["1" if pixel >= avg else "0" for pixel in pixels])
-                hex_str = f"{int(bits, 2):016x}"
-                return hex_str
+                return f"{int(bits, 2):016x}"
         except Exception as e:
-            logger.error(f"Failed to compute perceptual hash: {str(e)}")
+            logger.error(f"Failed to compute aHash: {str(e)}")
             return ""
 
-    def validate_image_dimensions(self, image_bytes: bytes) -> Tuple[bool, str, Tuple[int, int]]:
+    def compute_difference_dhash(self, image_bytes: bytes) -> str:
         """
-        Verifies if the provided file is a valid image and meets basic resolution thresholds.
+        Computes Difference Perceptual Hash (dHash) for high-precision structural similarity matching.
+        Extremely effective at matching candlestick structures despite compression artifacts.
+        """
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                # Resize to 9x8 to compute 8 gradient differences
+                img = img.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+                pixels = list(img.getdata())
+                difference = []
+                for row in range(8):
+                    for col in range(8):
+                        pixel_left = pixels[row * 9 + col]
+                        pixel_right = pixels[row * 9 + col + 1]
+                        difference.append(pixel_left > pixel_right)
+
+                bits = "".join(["1" if val else "0" for val in difference])
+                return f"{int(bits, 2):016x}"
+        except Exception as e:
+            logger.error(f"Failed to compute dHash: {str(e)}")
+            return ""
+
+    def validate_chart_dimensions(self, image_bytes: bytes) -> Tuple[bool, str, Tuple[int, int]]:
+        """
+        Validates whether provided image file meets minimum structural requirements
+        needed for 1-Hour OTC candlestick analysis.
         """
         try:
             with Image.open(io.BytesIO(image_bytes)) as img:
                 width, height = img.size
-                if width < 300 or height < 300:
-                    return False, "Resolution too low for candle structure analysis (min 300x300).", (width, height)
-                return True, "Valid image", (width, height)
+
+                # Minimum threshold check
+                if width < 350 or height < 350:
+                    return (
+                        False,
+                        f"Screenshot resolution too low ({width}x{height}). Minimum required: 350x350 for clear wick analysis.",
+                        (width, height)
+                    )
+
+                # Extreme Aspect Ratio Check
+                aspect_ratio = width / float(height)
+                if aspect_ratio > 4.0 or aspect_ratio < 0.25:
+                    return (
+                        False,
+                        f"Abnormal aspect ratio ({aspect_ratio:.2f}). Please capture a standard chart view.",
+                        (width, height)
+                    )
+
+                return True, "Valid chart image dimensions.", (width, height)
+
         except Exception as e:
             logger.error(f"Image validation exception: {str(e)}")
             return False, "Corrupted or invalid image file.", (0, 0)
 
     def optimize_chart_for_vision(
-        self, 
-        image_bytes: bytes, 
-        enhance_contrast: bool = False
+        self,
+        image_bytes: bytes,
+        enhance_contrast: bool = True,
+        sharpen_wicks: bool = True
     ) -> Optional[bytes]:
         """
-        Processes and resizes large screenshots to ensure fast transmission
-        to the Gemini Vision API without losing candlestick clarity.
+        Optimizes screenshot for AI Vision processing:
+        - Normalizes colors and strips EXIF tags
+        - Enhances contrast for dim dark themes
+        - Sharpens thin wicks for support/resistance rejection detection
         """
         try:
             with Image.open(io.BytesIO(image_bytes)) as img:
-                # Convert RGBA or Palette formats to standard RGB
+                # Convert non-standard RGBA/Palette images to clean RGB
                 if img.mode in ("RGBA", "P", "LA"):
                     img = img.convert("RGB")
 
-                # Auto-orient based on EXIF tag if present
+                # Transpose according to EXIF rotation tags
                 img = ImageOps.exif_transpose(img)
 
-                # Resize if image exceeds maximum allowed dimensions
+                # Dynamic Resizing while retaining structural aspect ratio
                 orig_w, orig_h = img.size
                 if orig_w > self.max_width or orig_h > self.max_height:
                     img.thumbnail((self.max_width, self.max_height), Image.Resampling.LANCZOS)
-                    logger.info(f"Resized screenshot from {orig_w}x{orig_h} to {img.width}x{img.height}")
+                    logger.info(f"Resized screenshot: {orig_w}x{orig_h} -> {img.width}x{img.height}")
 
-                # Optional contrast enhancement for dim or low-contrast chart themes
+                # Contrast Tuning for dark Quotex OTC chart layouts
                 if enhance_contrast:
-                    enhancer = ImageEnhance.Contrast(img)
-                    img = enhancer.enhance(1.2)  # Boost contrast by 20%
+                    contrast_enhancer = ImageEnhance.Contrast(img)
+                    img = contrast_enhancer.enhance(1.15)  # 15% Contrast boost
 
-                # Save compressed JPEG to memory buffer
+                # Color Saturation boost for clear green/red candle differentiation
+                color_enhancer = ImageEnhance.Color(img)
+                img = color_enhancer.enhance(1.10)
+
+                # Optional Sharpening filter to make thin rejection wicks vivid for Vision AI
+                if sharpen_wicks:
+                    img = img.filter(ImageFilter.SMOOTH_MORE)
+                    sharpener = ImageEnhance.Sharpness(img)
+                    img = sharpener.enhance(1.20)
+
+                # Export compressed buffer
                 output_buffer = io.BytesIO()
                 img.save(
-                    output_buffer, 
-                    format="JPEG", 
-                    quality=self.quality, 
+                    output_buffer,
+                    format="JPEG",
+                    quality=self.quality,
                     optimize=True
                 )
                 optimized_bytes = output_buffer.getvalue()
-                logger.info(f"Image optimization complete. Compression ratio: {len(image_bytes)} -> {len(optimized_bytes)} bytes.")
+
+                logger.info(
+                    f"Image optimization successful | Size reduction: "
+                    f"{len(image_bytes)} -> {len(optimized_bytes)} bytes."
+                )
                 return optimized_bytes
 
         except Exception as e:
-            logger.error(f"Image optimization failed: {str(e)}")
+            logger.error(f"Image optimization pipeline failed: {str(e)}")
             return None
 
-    def process_screenshot(self, image_bytes: bytes) -> Tuple[bool, str, Optional[bytes], str, str]:
+    def process_screenshot(self, image_bytes: bytes) -> Dict[str, Any]:
         """
-        Master execution pipeline for image processing.
-        Returns: (is_valid, status_message, processed_bytes, sha256_hash, perceptual_hash)
+        Master execution pipeline for chart processing.
+        
+        Returns:
+            Dict containing validity status, processed bytes, sha256 hash, and dual perceptual hashes.
         """
-        is_valid, msg, dims = self.validate_image_dimensions(image_bytes)
+        is_valid, msg, dims = self.validate_chart_dimensions(image_bytes)
         if not is_valid:
-            return False, msg, None, "", ""
+            return {
+                "success": False,
+                "message": msg,
+                "processed_bytes": None,
+                "sha256": "",
+                "ahash": "",
+                "dhash": "",
+                "dimensions": dims
+            }
 
         sha256_h = self.compute_sha256_hash(image_bytes)
-        p_hash = self.compute_perceptual_hash(image_bytes)
+        a_hash = self.compute_perceptual_ahash(image_bytes)
+        d_hash = self.compute_difference_dhash(image_bytes)
 
-        processed_bytes = self.optimize_chart_for_vision(image_bytes, enhance_contrast=False)
+        processed_bytes = self.optimize_chart_for_vision(
+            image_bytes,
+            enhance_contrast=True,
+            sharpen_wicks=True
+        )
+
         if processed_bytes is None:
-            return False, "Failed during image optimization pipeline.", None, sha256_h, p_hash
+            return {
+                "success": False,
+                "message": "Optimization pipeline failed.",
+                "processed_bytes": None,
+                "sha256": sha256_h,
+                "ahash": a_hash,
+                "dhash": d_hash,
+                "dimensions": dims
+            }
 
-        return True, "Image processed successfully", processed_bytes, sha256_h, p_hash
+        return {
+            "success": True,
+            "message": "Chart screenshot processed successfully.",
+            "processed_bytes": processed_bytes,
+            "sha256": sha256_h,
+            "ahash": a_hash,
+                "dhash": d_hash,
+            "dimensions": dims
+        }
 
+
+# Global Instance Export
+processor = ImageProcessor()
+# Class Alias for Flexible Importing
+ChartImageProcessor = ImageProcessor
+
+if __name__ == "__main__":
+    print("Image Processor Module Ready.")
