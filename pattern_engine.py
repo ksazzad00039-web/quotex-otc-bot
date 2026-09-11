@@ -1,157 +1,227 @@
 import logging
-from typing import Dict, Any, Tuple
+import math
+from typing import Dict, Any, Tuple, Optional, List
 
-logger = logging.getLogger("OTC_Enterprise_Quant.PatternEngine")
+# Fallback Configuration Logging Setup
+try:
+    from config import logger, MIN_COMBINED_SCORE, KELLY_RISK_FRACTION, DEFAULT_PAYOUT_RATE
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    logger = logging.getLogger("OTC_Enterprise_Quant.PatternEngine")
+    MIN_COMBINED_SCORE = 75.0
+    KELLY_RISK_FRACTION = 0.5
+    DEFAULT_PAYOUT_RATE = 0.85
+
 
 class PatternEngine:
     """
-    Algorithmic Price Action & Technical Pattern Evaluation Engine.
-    Processes structured vision output to identify high-probability institutional candle patterns,
-    trend alignments, wick rejections, and structural strength for OTC markets.
+    Ultimate Enterprise Quantitative Pattern & Price Action Analysis Engine.
+    Strictly designed for Quotex OTC Binary Options on 1-Hour Chart Executions.
+    Integrates Candlestick Microstructure, Wick Rejections, Macro Trend Alignment (1D),
+    Support/Resistance Level Density, Exhaustion Protection, and Half-Kelly Risk Management.
     """
 
     def __init__(self):
-        # Weightage matrix for structural trend alignment
+        # Directional Trend Matrix
         self.trend_weights = {
             "STRONG_BULLISH": 1.0,
+            "UPTREND": 1.0,
             "WEAK_BULLISH": 0.5,
             "CONSOLIDATION": 0.0,
+            "NEUTRAL": 0.0,
             "WEAK_BEARISH": -0.5,
+            "DOWNTREND": -1.0,
             "STRONG_BEARISH": -1.0
         }
 
+        # Candlestick Microstructure Weight Matrix
+        self.candlestick_weights = {
+            "BULLISH_ENGULFING": 18.0,
+            "BEARISH_ENGULFING": 18.0,
+            "PIN_BAR_REJECTION": 15.0,
+            "MARUBOZU_CONTINUATION": 12.0,
+            "HAMMER_REVERSAL": 14.0,
+            "SHOOTING_STAR": 14.0,
+            "DOJI_INDECISION": -10.0
+        }
+
     def evaluate_trend_alignment(self, trend_1d: str, trend_1h: str) -> Tuple[float, str]:
-        """
-        Calculates higher timeframe (1D) vs current execution timeframe (1H) alignment score.
-        Returns: (alignment_score, alignment_status)
-        """
-        weight_1d = self.trend_weights.get(trend_1d, 0.0)
-        weight_1h = self.trend_weights.get(trend_1h, 0.0)
+        """Calculates Macro Trend (1D) vs Micro Structure (1H) alignment."""
+        w_1d = self.trend_weights.get(trend_1d.upper(), 0.0)
+        w_1h = self.trend_weights.get(trend_1h.upper(), 0.0)
 
-        # Perfect directional alignment
-        if weight_1d > 0 and weight_1h > 0:
+        if w_1d > 0 and w_1h > 0:
             return 25.0, "PERFECT_BULLISH_ALIGNMENT"
-        elif weight_1d < 0 and weight_1h < 0:
+        elif w_1d < 0 and w_1h < 0:
             return 25.0, "PERFECT_BEARISH_ALIGNMENT"
-        
-        # Mixed or conflicting trends
-        if (weight_1d > 0 and weight_1h < 0) or (weight_1d < 0 and weight_1h > 0):
-            return -15.0, "COUNTER_TREND_CONFLICT"
+        elif (w_1d > 0 and w_1h < 0) or (w_1d < 0 and w_1h > 0):
+            return -18.0, "COUNTER_TREND_CONFLICT_RISK"
 
-        # Consolidation or weak trend state
-        return 5.0, "NEUTRAL_CONSOLIDATION"
+        return 5.0, "NEUTRAL_CONSOLIDATION_ALIGNMENT"
 
-    def analyze_rejection_confluence(self, rejection_zone: str, primary_trend: str) -> Tuple[float, str]:
-        """
-        Evaluates wick rejection dynamics against current timeframe trend bias.
-        Upper wicks indicate selling pressure; lower wicks indicate buying pressure.
-        """
+    def analyze_wick_rejection(self, rejection_zone: str, primary_trend: str) -> Tuple[float, str]:
+        """Evaluates wick rejection dynamics against current timeframe trend bias."""
+        rejection = rejection_zone.upper()
+        trend = primary_trend.upper()
+
+        if rejection in ["UPPER_REJECTION", "RESISTANCE", "TOP_WICK_REJECTION"]:
+            if "BEARISH" in trend or "DOWN" in trend:
+                return 22.0, "HIGH_CONFLUENCE_BEARISH_REJECTION"
+            return 4.0, "WEAK_UPPER_REJECTION"
+
+        elif rejection in ["LOWER_REJECTION", "SUPPORT", "BOTTOM_WICK_REJECTION"]:
+            if "BULLISH" in trend or "UP" in trend:
+                return 22.0, "HIGH_CONFLUENCE_BULLISH_REJECTION"
+            return 4.0, "WEAK_LOWER_REJECTION"
+
+        return 0.0, "NO_WICK_REJECTION"
+
+    def evaluate_candlestick_pattern(self, pattern_type: str, trade_direction: str) -> Tuple[float, str]:
+        """Evaluates candlestick microstructure formation against expected trade direction."""
+        pattern = pattern_type.upper()
+        direction = trade_direction.upper()
+
+        if pattern == "NONE" or not pattern:
+            return 0.0, "NO_CANDLE_PATTERN_DETECTED"
+
+        if pattern in ["BULLISH_ENGULFING", "HAMMER_REVERSAL"] and direction == "UP":
+            return self.candlestick_weights.get(pattern, 15.0), f"ALIGNED_{pattern}"
+        elif pattern in ["BEARISH_ENGULFING", "SHOOTING_STAR"] and direction == "DOWN":
+            return self.candlestick_weights.get(pattern, 15.0), f"ALIGNED_{pattern}"
+        elif pattern == "DOJI_INDECISION":
+            return -12.0, "DOJI_HIGH_VOLATILITY_RISK"
+
+        return 0.0, "NEUTRAL_CANDLE_PATTERN"
+
+    def evaluate_sr_density_and_volatility(self, sr_count: int, volatility_score: float) -> Tuple[float, Dict[str, Any]]:
+        """Assesses S/R level cluster density and price volatility stability."""
         score = 0.0
-        status = "NO_REJECTION_CONFLUENCE"
+        status = {"density": "LOW", "volatility": "STABLE"}
 
-        if rejection_zone == "UPPER_REJECTION":
-            if "BEARISH" in primary_trend:
-                score += 20.0
-                status = "STRONG_UPPER_WICK_BEARISH_REJECTION"
-            else:
-                score += 5.0
-                status = "WEAK_UPPER_REJECTION"
+        if sr_count >= 3:
+            score += 12.0
+            status["density"] = "HIGH_KEY_LEVEL_CONFLUENCE"
+        elif sr_count >= 1:
+            score += 6.0
+            status["density"] = "MODERATE_KEY_LEVEL"
 
-        elif rejection_zone == "LOWER_REJECTION":
-            if "BULLISH" in primary_trend:
-                score += 20.0
-                status = "STRONG_LOWER_WICK_BULLISH_REJECTION"
-            else:
-                score += 5.0
-                status = "WEAK_LOWER_REJECTION"
+        if 30.0 <= volatility_score <= 70.0:
+            score += 10.0
+            status["volatility"] = "OPTIMAL_VOLATILITY"
+        elif volatility_score > 85.0:
+            score -= 15.0
+            status["volatility"] = "EXTREME_VOLATILITY_NOISE"
+        elif volatility_score < 20.0:
+            score -= 8.0
+            status["volatility"] = "LOW_LIQUIDITY_STAGNANT"
 
         return score, status
 
-    def evaluate_volatility_and_levels(self, volatility_score: float, sr_count: int) -> Tuple[float, Dict[str, Any]]:
+    def calculate_kelly_stake(self, win_rate_pct: float, payout_rate: float = DEFAULT_PAYOUT_RATE) -> float:
+        """Calculates Fractional Half-Kelly Risk Percentage based on win probability."""
+        p = win_rate_pct / 100.0
+        q = 1.0 - p
+        b = payout_rate
+
+        kelly_full = (b * p - q) / b if b > 0 else 0.0
+        kelly_fractional = max(0.0, kelly_full * KELLY_RISK_FRACTION)
+
+        return round(kelly_fractional * 100, 2)
+
+    def compute_pattern_score(
+        self,
+        vision_data: Dict[str, Any],
+        db_stats: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Assesses key Support/Resistance level density and volatility index.
-        Ideal trading environment requires clear key levels and stable (non-erratic) volatility.
+        Master Execution Pipeline:
+        Integrates Price Action, Candlestick Microstructure, S/R Density, 
+        and Historical DB Analytics to generate institutional grade decisions.
         """
-        score = 0.0
-        metrics = {
-            "volatility_status": "STABLE",
-            "level_density": "LOW"
-        }
+        if db_stats is None:
+            db_stats = {}
 
-        # Key Level Density
-        if sr_count >= 3:
-            score += 15.0
-            metrics["level_density"] = "HIGH"
-        elif sr_count >= 1:
-            score += 8.0
-            metrics["level_density"] = "MEDIUM"
+        try:
+            trend_1d = vision_data.get("timeframe_1d_trend", "CONSOLIDATION")
+            trend_1h = vision_data.get("primary_trend", "CONSOLIDATION")
+            rejection_1h = vision_data.get("rejection_zone", "NEUTRAL")
+            candle_pattern = vision_data.get("candlestick_pattern", "NONE")
+            sr_count = int(vision_data.get("sr_level_count", 0))
+            volatility_score = float(vision_data.get("volatility_score", 50.0))
+            ai_confidence = float(vision_data.get("confidence_score", 50.0))
+            raw_prediction = vision_data.get("predicted_direction", "HOLD").upper()
 
-        # Volatility Assessment (0 to 100 scale)
-        if 30.0 <= volatility_score <= 70.0:
-            score += 10.0
-            metrics["volatility_status"] = "OPTIMAL_VOLATILITY"
-        elif volatility_score > 85.0:
-            score -= 10.0
-            metrics["volatility_status"] = "EXTREME_VOLATILITY_NOISY"
-        elif volatility_score < 20.0:
-            score -= 5.0
-            metrics["volatility_status"] = "DEAD_LOW_VOLATILITY"
+            # 1. Base Confluence Aggregation
+            base_score = 35.0
+            trend_score, trend_status = self.evaluate_trend_alignment(trend_1d, trend_1h)
+            rejection_score, rejection_status = self.analyze_wick_rejection(rejection_1h, trend_1h)
+            candle_score, candle_status = self.evaluate_candlestick_pattern(candle_pattern, raw_prediction)
+            sr_vol_score, sr_vol_metrics = self.evaluate_sr_density_and_volatility(sr_count, volatility_score)
 
-        return score, metrics
+            total_pattern_score = base_score + trend_score + rejection_score + candle_score + sr_vol_score
 
-    def compute_pattern_score(self, data_1d: Dict[str, Any], data_1h: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Master method aggregating all technical, pattern, and structural confluence metrics.
-        Returns detailed scoring breakdown and recommended trade direction.
-        """
-        trend_1d = data_1d.get("primary_trend", "CONSOLIDATION")
-        trend_1h = data_1h.get("primary_trend", "CONSOLIDATION")
-        rejection_1h = data_1h.get("rejection_zone", "NEUTRAL")
-        volatility_1h = float(data_1h.get("volatility_score", 50.0))
-        sr_count_1h = int(data_1h.get("support_resistance_count", 0))
+            # 2. Database History Fusion (60% AI Vision + 40% DB Memory)
+            historical_matches = db_stats.get("matched_records", 0)
+            historical_avg_conf = db_stats.get("historical_avg_confidence", 50.0)
 
-        # Base technical setup score
-        base_score = 50.0
-
-        # 1. Trend Alignment Score
-        trend_score, trend_status = self.evaluate_trend_alignment(trend_1d, trend_1h)
-        base_score += trend_score
-
-        # 2. Rejection Confluence Score
-        rejection_score, rejection_status = self.analyze_rejection_confluence(rejection_1h, trend_1h)
-        base_score += rejection_score
-
-        # 3. Volatility & Levels Score
-        vol_score, vol_metrics = self.evaluate_volatility_and_levels(volatility_1h, sr_count_1h)
-        base_score += vol_score
-
-        # Clamp final pattern score between 10.0 and 99.0
-        final_pattern_score = round(max(10.0, min(base_score, 99.0)), 1)
-
-        # Direction Determination Logic
-        if "BULLISH" in trend_status:
-            direction = "UP"
-        elif "BEARISH" in trend_status:
-            direction = "DOWN"
-        else:
-            if rejection_1h == "LOWER_REJECTION":
-                direction = "UP"
-            elif rejection_1h == "UPPER_REJECTION":
-                direction = "DOWN"
+            if historical_matches > 0:
+                combined_score = (ai_confidence * 0.55) + (historical_avg_conf * 0.30) + (total_pattern_score * 0.15)
             else:
-                direction = data_1h.get("recommended_direction", "NO_TRADE")
+                combined_score = (ai_confidence * 0.65) + (total_pattern_score * 0.35)
 
-        return {
-            "pattern_score": final_pattern_score,
-            "suggested_direction": direction,
-            "trend_alignment_status": trend_status,
-            "rejection_status": rejection_status,
-            "volatility_metrics": vol_metrics,
-            "raw_inputs": {
-                "trend_1d": trend_1d,
-                "trend_1h": trend_1h,
-                "rejection_1h": rejection_1h,
-                "volatility": volatility_1h,
-                "sr_count": sr_count_1h
+            final_score = round(max(10.0, min(combined_score, 99.0)), 2)
+
+            # 3. Execution Guard & Risk Sizing
+            if final_score < MIN_COMBINED_SCORE or raw_prediction not in ["UP", "DOWN"]:
+                decision = "HOLD"
+                win_rate = 0.0
+                recommended_stake_pct = 0.0
+            else:
+                decision = raw_prediction
+                win_rate = min(96.0, max(55.0, final_score))
+                recommended_stake_pct = self.calculate_kelly_stake(win_rate)
+
+            logger.info(
+                f"Master Pattern Evaluation Complete | Decision: [{decision}] | "
+                f"Combined Score: [{final_score}%] | Recommended Stake: [{recommended_stake_pct}%]"
+            )
+
+            return {
+                "decision": decision,
+                "confidence_score": final_score,
+                "win_rate_probability": win_rate,
+                "kelly_risk_stake_pct": recommended_stake_pct,
+                "trend_alignment_status": trend_status,
+                "rejection_status": rejection_status,
+                "candlestick_status": candle_status,
+                "sr_volatility_metrics": sr_vol_metrics,
+                "historical_matches_found": historical_matches,
+                "summary": vision_data.get("analysis_summary", "")
             }
-        }
+
+        except Exception as e:
+            logger.error(f"Error in Pattern Engine evaluation: {str(e)}")
+            return {
+                "decision": "HOLD",
+                "confidence_score": 50.0,
+                "win_rate_probability": 0.0,
+                "kelly_risk_stake_pct": 0.0,
+                "trend_alignment_status": "ERROR_FALLBACK",
+                "rejection_status": "ERROR_FALLBACK",
+                "candlestick_status": "ERROR_FALLBACK",
+                "sr_volatility_metrics": {},
+                "historical_matches_found": 0,
+                "summary": f"Fallback execution: {str(e)}"
+            }
+
+
+# Global Engine Instance Export
+pattern_engine = PatternEngine()
+# Class Alias for Flexible Importing
+QuantPatternEngine = PatternEngine
+
+if __name__ == "__main__":
+    print("Master Quant Pattern Engine Ready.")
